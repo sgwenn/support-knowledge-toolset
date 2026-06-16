@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__7e18c32a-4e16-456d-87a9-6682e81d5964__getAccessibleAtlassianResources",
+      "mcp__snowflake__run_snowflake_query",
+      "Skill(update-config)",
+      "mcp__atlassian__atlassianUserInfo",
+      "mcp__atlassian__getAccessibleAtlassianResources",
+      "mcp__atlassian__getConfluenceSpaces",
+      "mcp__atlassian__searchConfluenceUsingCql",
+      "mcp__atlassian__lookupJiraAccountId",
+      "mcp__atlassian__createConfluencePage",
+      "Bash(python3:*)"
+    ]
+  }
+}
