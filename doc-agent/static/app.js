@@ -477,12 +477,12 @@ async function checkConfluenceStatus() {
     const resp = await fetch('/auth/status');
     const data = await resp.json();
     if (data.confluence_connected) {
-      container.innerHTML = '<span style="color:var(--text-2)">Confluence ✓</span>';
+      container.innerHTML = `<span class="confluence-connected-badge"><svg width="7" height="7" viewBox="0 0 8 8" fill="#34D399"><circle cx="4" cy="4" r="4"/></svg>Confluence connected</span>`;
     } else {
       const errorHtml = authError
-        ? `<span style="color:var(--error);font-size:12px">${authError === 'access_denied' ? 'Connection failed — try again' : 'Something went wrong — try again'}</span>`
+        ? `<span class="confluence-auth-error">${authError === 'access_denied' ? 'Connection failed — try again' : 'Something went wrong — try again'}</span>`
         : '';
-      container.innerHTML = `${errorHtml}<a href="/auth/confluence" class="btn btn-ghost" style="font-size:12px;padding:5px 10px" onclick="this.style.pointerEvents='none';this.textContent='Connecting…'">Connect Confluence</a>`;
+      container.innerHTML = `${errorHtml}<a href="/auth/confluence" id="connect-confluence-btn" class="btn btn-primary" onclick="this.style.pointerEvents='none';this.textContent='Connecting…'"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Connect Confluence</a>`;
     }
   } catch (_) {}
 }

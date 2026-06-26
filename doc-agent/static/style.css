@@ -444,11 +444,32 @@ nav {
     box-shadow: 0 0 0 1px rgba(139,92,246,0.82), 0 6px 30px rgba(139,92,246,0.58), 0 0 55px rgba(139,92,246,0.16);
   }
 }
-#run-btn:not(:disabled) {
+#run-btn:not(:disabled),
+#connect-confluence-btn {
   animation: ctaGlow 3.5s ease-in-out infinite;
 }
-#run-btn:not(:disabled):hover {
+#run-btn:not(:disabled):hover,
+#connect-confluence-btn:hover {
   animation: none;
+}
+
+/* Confluence connection status */
+.confluence-connected-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--success);
+  background: var(--success-bg);
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  border-radius: 20px;
+  padding: 4px 10px;
+}
+.confluence-auth-error {
+  font-size: 12px;
+  color: var(--error);
+  margin-right: 4px;
 }
 
 /* Card entrance */
