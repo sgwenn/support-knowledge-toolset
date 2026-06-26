@@ -27,6 +27,7 @@ app = FastAPI(title="KB Agent")
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+_INDEX_HTML = (STATIC_DIR / "index.html").read_text()
 
 _session_secret = os.environ.get("SESSION_SECRET", "")
 if not _session_secret:
@@ -97,17 +98,12 @@ async def _start_cleanup_task() -> None:
     except Exception as e:
         logger.warning("Startup token migration failed: %s", e)
 
-    if os.environ.get("ATLASSIAN_API_TOKEN"):
-        try:
-            oauth_row = await loop.run_in_executor(None, get_atlassian_tokens)
-            if oauth_row:
-                logger.warning(
-                    "ATLASSIAN_API_TOKEN is set alongside OAuth tokens — pages created via the PAT "
-                    "path will be owned by the service account while OAuth-created pages are owned "
-                    "by the authenticated user. Remove ATLASSIAN_API_TOKEN from .env to use OAuth exclusively."
-                )
-        except Exception:
-            pass
+    if os.environ.get("ATLASSIAN_API_TOKEN") and row:
+        logger.warning(
+            "ATLASSIAN_API_TOKEN is set alongside OAuth tokens — pages created via the PAT "
+            "path will be owned by the service account while OAuth-created pages are owned "
+            "by the authenticated user. Remove ATLASSIAN_API_TOKEN from .env to use OAuth exclusively."
+        )
 
     async def _cleanup_loop():
         while True:
@@ -123,7 +119,7 @@ async def _start_cleanup_task() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return (STATIC_DIR / "index.html").read_text()
+    return _INDEX_HTML
 
 
 @app.get("/auth/confluence")
@@ -266,7 +262,7 @@ async def stream(job_id: str, request: Request):
         raise HTTPException(409, "Stream already has an active consumer")
 
     queue = _jobs[job_id]
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     async def event_generator():
         _active_streams.add(job_id)
@@ -426,16 +422,6 @@ def _score_ticket(t: dict) -> int:
     return score
 
 
-def _conversation_snippet(full_conversation: str | None, max_chars: int = 400) -> str | None:
-    if not full_conversation:
-        return None
-    # Strip leading speaker labels like "User:\n" or "Agent:\n" from the first turn
-    text = full_conversation.strip()
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "…"
-
-
 def _format_digest_ticket(t: dict) -> dict:
     tags = []
     if t.get("_novelty_tag"):
@@ -458,7 +444,7 @@ def _format_digest_ticket(t: dict) -> dict:
         "tags": tags,
         "value": "High value" if score >= 7 else "Medium value",
         "summary": t.get("summary"),
-        "investigation": t.get("investigation") or _conversation_snippet(t.get("full_conversation")),
+        "investigation": t.get("investigation"),
         "suggested_solution": t.get("suggested_solution_by_agents"),
         "score": score,
     }

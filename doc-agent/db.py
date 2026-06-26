@@ -41,6 +41,8 @@ def init() -> None:
             cloud_id      TEXT,
             updated_at    INTEGER
         );
+        CREATE INDEX IF NOT EXISTS idx_gap_component ON gap_records(component);
+        CREATE INDEX IF NOT EXISTS idx_cov_component ON coverage_records(component);
     """)
     conn.commit()
     if os.path.exists(_DB_PATH):

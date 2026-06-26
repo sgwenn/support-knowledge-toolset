@@ -1,7 +1,10 @@
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 ALGOLIA_APP_ID = os.environ.get("ALGOLIA_APP_ID", "EOIG7V0A2O")
 
@@ -31,7 +34,7 @@ def _query_one(query: str) -> list[dict]:
                 for hit in resp.json().get("hits", [])
             ]
     except Exception as e:
-        print(f"Algolia search failed for '{query}': {e}")
+        logger.warning("Algolia search failed for %r: %s", query, e)
     return []
 
 

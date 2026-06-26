@@ -87,27 +87,6 @@ def fetch_ticket(ticket_id: int) -> dict:
     return {k.lower(): v for k, v in row.items()}
 
 
-def fetch_child_tickets(ticket_id: int) -> list:
-    sql = """
-        SELECT
-            t.ID,
-            t.SUBJECT,
-            t.STATUS,
-            t.PRIMARY_PRODUCT_COMPONENT,
-            t.CREATED_TIMESTAMP,
-            t.SOLVED_TIMESTAMP,
-            c.FULL_CONVERSATION
-        FROM REPORTING.GENERAL.DIM_ZENDESK_TICKET t
-        LEFT JOIN REPORTING.DLAC_RESTRICTED.FACT_ZENDESK_TICKET_CONVERSATIONS_TECH_SUPPORT_AI c
-            ON t.ID = c.TICKET_ID
-        WHERE t.PARENT_TICKET_ID = %s
-    """
-    conn = _get_conn()
-    with conn.cursor(snowflake.connector.DictCursor) as cur:
-        cur.execute(sql, (ticket_id,))
-        rows = cur.fetchall()
-    return [{k.lower(): v for k, v in row.items()} for row in rows]
-
 
 def find_similar_tickets(ticket_id: int, limit: int = 5) -> list:
     sql = """
@@ -159,13 +138,10 @@ def weekly_digest_candidates(component: str = None) -> list:
             e.SUMMARY,
             e.CUSTOMER_SITUATION,
             e.INVESTIGATION,
-            e.SUGGESTED_SOLUTION_BY_AGENTS,
-            c.FULL_CONVERSATION
+            e.SUGGESTED_SOLUTION_BY_AGENTS
         FROM REPORTING.GENERAL.DIM_ZENDESK_TICKET t
         LEFT JOIN REPORTING.GENERAL.FACT_ZENDESK_TICKET_EMBEDDINGS e
             ON t.ID = e.TICKET_ID
-        LEFT JOIN REPORTING.DLAC_RESTRICTED.FACT_ZENDESK_TICKET_CONVERSATIONS_TECH_SUPPORT_AI c
-            ON t.ID = c.TICKET_ID
         WHERE t.SOLVED_TIMESTAMP >= DATEADD(day, -90, CURRENT_TIMESTAMP())
             AND t.STATUS IN ('closed', 'solved')
             AND t.PRIMARY_PRODUCT_COMPONENT IS NOT NULL
@@ -184,13 +160,8 @@ def batch_novelty_check(tickets: list) -> dict:
     """Return {ticket_id: max_cosine_similarity} for a batch in one query."""
     if not tickets:
         return {}
-    placeholders = " OR ".join(
-        "(candidate.TICKET_ID = %s AND candidate.PRIMARY_PRODUCT_COMPONENT = %s)"
-        for _ in tickets
-    )
-    params = []
-    for t in tickets:
-        params.extend([t["id"], t["primary_product_component"]])
+    placeholders = ", ".join("%s" for _ in tickets)
+    params = [t["id"] for t in tickets]
     sql = f"""
         SELECT
             candidate.TICKET_ID,
@@ -204,7 +175,7 @@ def batch_novelty_check(tickets: list) -> dict:
             AND other.PRIMARY_PRODUCT_COMPONENT = candidate.PRIMARY_PRODUCT_COMPONENT
             AND other.CREATED_TIMESTAMP < DATEADD(day, -7, CURRENT_TIMESTAMP())
             AND other.CREATED_TIMESTAMP >= DATEADD(day, -180, CURRENT_TIMESTAMP())
-        WHERE ({placeholders})
+        WHERE candidate.TICKET_ID IN ({placeholders})
         GROUP BY candidate.TICKET_ID
     """
     conn = _get_conn()
@@ -214,27 +185,3 @@ def batch_novelty_check(tickets: list) -> dict:
     return {row["TICKET_ID"]: float(row["SIMILARITY"]) for row in rows}
 
 
-def novelty_check(ticket_id: int, component: str) -> float:
-    """Return cosine similarity to the nearest past ticket in the same component."""
-    sql = """
-        SELECT
-            VECTOR_COSINE_SIMILARITY(
-                candidate.EMBEDDINGS::VECTOR(FLOAT, 1536),
-                other.EMBEDDINGS::VECTOR(FLOAT, 1536)
-            ) AS similarity
-        FROM REPORTING.GENERAL.FACT_ZENDESK_TICKET_EMBEDDINGS candidate
-        JOIN REPORTING.GENERAL.FACT_ZENDESK_TICKET_EMBEDDINGS other
-            ON other.TICKET_ID != candidate.TICKET_ID
-            AND other.PRIMARY_PRODUCT_COMPONENT = candidate.PRIMARY_PRODUCT_COMPONENT
-            AND other.CREATED_TIMESTAMP < DATEADD(day, -7, CURRENT_TIMESTAMP())
-            AND other.CREATED_TIMESTAMP >= DATEADD(day, -180, CURRENT_TIMESTAMP())
-        WHERE candidate.TICKET_ID = %s
-            AND candidate.PRIMARY_PRODUCT_COMPONENT = %s
-        ORDER BY similarity DESC
-        LIMIT 1
-    """
-    conn = _get_conn()
-    with conn.cursor() as cur:
-        cur.execute(sql, (ticket_id, component))
-        row = cur.fetchone()
-    return float(row[0]) if row else 0.0

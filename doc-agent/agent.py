@@ -1,7 +1,9 @@
 import asyncio
+import httpx
 import json
 import logging
 import os
+import re
 
 import anthropic
 from dotenv import load_dotenv
@@ -14,6 +16,11 @@ from tools.algolia import search_docs
 from tools.confluence import search_confluence, find_parent_page_id, get_ts_space_id, create_draft_page_pat, resolve_component_to_ts_page, find_or_create_kb_drafts_folder, find_or_create_kb_drafts_page
 
 load_dotenv()
+
+_client = anthropic.Anthropic(
+    api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+    timeout=anthropic.Timeout(180.0, connect=5.0),
+)
 
 MODEL = "claude-sonnet-4-6"
 
@@ -73,9 +80,13 @@ CUSTOM_TOOL_DEFINITIONS = [
 _CUSTOM_TOOL_NAMES = {t["name"] for t in CUSTOM_TOOL_DEFINITIONS}
 
 
-def _dispatch_tool(name: str, inputs: dict):
+def _dispatch_tool(name: str, inputs: dict, prefetch_cache: dict = None):
     if name == "fetch_ticket_from_snowflake":
-        return fetch_ticket(inputs["ticket_id"])
+        tid = inputs["ticket_id"]
+        if prefetch_cache is not None and tid in prefetch_cache:
+            logger.debug("prefetch_cache hit for ticket %s — skipping Snowflake", tid)
+            return prefetch_cache[tid]
+        return fetch_ticket(tid)
     if name == "find_similar_tickets":
         return find_similar_tickets(inputs["ticket_id"])
     if name == "search_docs":
@@ -108,8 +119,6 @@ async def _jira_preflight(queue: asyncio.Queue, ticket_id: int, jira_key: str) -
 
     Emits SSE tool_call / tool_result events. Returns empty string on any failure.
     """
-    import httpx
-
     await queue.put({"type": "tool_call", "name": "jira_preflight", "input_summary": f"{jira_key} (ZD #{ticket_id})"})
     try:
         from tools.confluence import _get_cloud_id, _get_token, ConfluenceNotAuthenticatedError
@@ -203,14 +212,13 @@ async def run_kb_agent(
     ticket_id: int = None,
     raw_text: str = None,
 ):
-    client = anthropic.Anthropic(
-        api_key=os.environ["ANTHROPIC_API_KEY"],
-        timeout=anthropic.Timeout(180.0, connect=5.0),
-    )
     loop = asyncio.get_running_loop()
     component_holder: list[str | None] = [None]
+    prefetch_cache: dict = {}
 
     # Pre-flight: for ticket_id mode, deterministically fetch Jira context before the agent loop.
+    # Store the result so _dispatch_tool can serve the first fetch_ticket_from_snowflake call from
+    # cache, eliminating the duplicate Snowflake round-trip.
     jira_block = ""
     if mode == "ticket_id" and ticket_id:
         try:
@@ -218,6 +226,8 @@ async def run_kb_agent(
         except Exception:
             logger.warning("Pre-flight Snowflake fetch failed for ticket %s", ticket_id, exc_info=True)
             ticket_data = None
+        if ticket_data:
+            prefetch_cache[ticket_id] = ticket_data
         jira_key = ticket_data.get("jira_key") if ticket_data else None
         if ticket_data and jira_key:
             jira_block = await _jira_preflight(queue, ticket_id, jira_key)
@@ -231,7 +241,7 @@ async def run_kb_agent(
         while True:
             response = await loop.run_in_executor(
                 None,
-                lambda: client.beta.messages.create(
+                lambda: _client.beta.messages.create(
                     model=MODEL,
                     max_tokens=8192,
                     system=SYSTEM_PROMPT,
@@ -280,7 +290,7 @@ async def run_kb_agent(
                         "name": block.name,
                         "input_summary": _summarize_input(block.name, block.input),
                     })
-                    result = await loop.run_in_executor(None, lambda b=block: _dispatch_tool(b.name, b.input))
+                    result = await loop.run_in_executor(None, lambda b=block: _dispatch_tool(b.name, b.input, prefetch_cache))
                     if block.name == "fetch_ticket_from_snowflake" and isinstance(result, dict):
                         component_holder[0] = result.get("primary_product_component")
                     await queue.put({
@@ -313,7 +323,6 @@ def _parse_draft(text: str) -> tuple:
         raw = text.split("EXISTING_URL:", 1)[1].split("\n")[0].strip()
         existing_url = "" if raw == "NONE" else raw
     if "DRAFT_HTML:" in text:
-        import re
         draft_html = text.split("DRAFT_HTML:", 1)[1].strip()
         # Strip trailing markdown code fence the model sometimes emits after the HTML
         draft_html = re.sub(r'\n```\s*$', '', draft_html).rstrip()
@@ -321,7 +330,6 @@ def _parse_draft(text: str) -> tuple:
 
 
 def _strip_dangerous_html(html: str) -> str:
-    import re
     html = re.sub(r'<script\b[^>]*>.*?</script>', '', html, flags=re.IGNORECASE | re.DOTALL)
     html = re.sub(r'\s+on\w+\s*=\s*(?:"[^"]*"|\'[^\']*\')', '', html, flags=re.IGNORECASE)
     html = re.sub(r'(?i)(href|src)\s*=\s*["\']javascript:[^"\']*["\']', '', html, flags=re.IGNORECASE)
@@ -336,8 +344,6 @@ async def run_publish_agent(
     requester_email: str = "",
     component: str = "",
 ):
-    import httpx
-    import re
     draft_html = _strip_dangerous_html(draft_html)
 
     base = "https://datadoghq.atlassian.net"
