@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KB Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-mark">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/>
+        <line x1="16" y1="17" x2="8" y2="17"/>
+      </svg>
+    </div>
+    <h1>KB Agent</h1>
+  </div>
+  <div class="header-sep"></div>
+  <span class="header-sub">Ticket → Confluence draft</span>
+  <div id="confluence-auth" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px"></div>
+</header>
+
+<nav>
+  <button class="tab-btn active" onclick="switchTab('generate', this)">Generate Article</button>
+  <button class="tab-btn" onclick="switchTab('digest', this)">Weekly Digest</button>
+  <button class="tab-btn" onclick="switchTab('coverage', this)">Coverage</button>
+</nav>
+
+<!-- ── Generate Tab ──────────────────────────── -->
+<div id="tab-generate" class="tab-panel active">
+  <div class="generate-layout">
+
+    <!-- Left column: form + progress -->
+    <div class="generate-left">
+      <div class="card">
+        <div class="card-title">New KB Article</div>
+
+        <div class="seg">
+          <button class="seg-btn active" id="mode-id-btn"   onclick="setMode('ticket_id')">By Ticket ID</button>
+          <button class="seg-btn"        id="mode-text-btn" onclick="setMode('raw_text')">Paste Text</button>
+        </div>
+
+        <div id="input-ticket-id" class="field">
+          <label>Zendesk Ticket ID</label>
+          <input type="number" id="ticket-id-input" placeholder="e.g. 2440781">
+        </div>
+
+        <div id="input-raw-text" class="field" style="display:none">
+          <label>Ticket Text</label>
+          <textarea id="raw-text-input" placeholder="Paste the full ticket content here…"></textarea>
+        </div>
+
+        <div class="field" style="margin-top:10px">
+          <label>Your Email</label>
+          <input type="email" id="email-input" placeholder="you@datadoghq.com">
+        </div>
+
+        <button class="btn btn-primary" id="run-btn" onclick="startJob()" style="margin-top:14px">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Generate KB Article
+        </button>
+      </div>
+
+      <div class="card progress-panel" id="progress-panel">
+        <div class="card-title">Progress</div>
+        <ul class="step-list" id="step-list"></ul>
+        <div class="banner banner-error" id="error-banner"></div>
+      </div>
+    </div>
+
+    <!-- Right column: draft preview (shown when draft is ready) -->
+    <div class="generate-right">
+      <div class="card preview-panel" id="preview-panel">
+        <div class="card-title">Draft Preview</div>
+        <div id="destination-pill" style="display:none;margin-bottom:10px;font-size:12px;color:var(--text-2)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span id="destination-text"></span>
+        </div>
+        <div class="preview-actions">
+          <button class="btn btn-success" id="publish-btn" onclick="publishDraft()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
+            Publish to Confluence
+          </button>
+          <button class="btn btn-ghost" onclick="discardDraft()">Discard</button>
+          <span id="existing-url-notice" style="font-size:12px;color:var(--text-2);display:none">
+            Will amend existing article
+          </span>
+        </div>
+        <ul class="step-list" id="publish-step-list" style="display:none;margin-bottom:10px"></ul>
+        <div class="banner banner-success" id="done-banner" style="margin-bottom:12px">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="#34D399"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+          <div>
+            <div class="banner-title">Published to Confluence</div>
+            <a id="confluence-link" href="#" target="_blank"></a>
+          </div>
+        </div>
+        <div class="preview-body" id="preview-body"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Digest Tab ────────────────────────────── -->
+<div id="tab-digest" class="tab-panel">
+  <div class="container">
+    <div class="card">
+      <div class="card-title">Weekly KB Digest</div>
+      <div class="digest-row">
+        <div class="field">
+          <label>Product Component (optional)</label>
+          <input type="text" id="component-input" placeholder="e.g. rum_ppc, apm_ppc">
+        </div>
+        <button class="btn btn-primary" id="digest-btn" onclick="runDigest()">Run Digest</button>
+      </div>
+    </div>
+    <div id="digest-results"></div>
+  </div>
+</div>
+
+<!-- ── Coverage Tab ─────────────────────────── -->
+<div id="tab-coverage" class="tab-panel">
+  <div class="container">
+    <div class="card">
+      <div class="card-title">KB Coverage Progress</div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary" id="coverage-btn" onclick="loadCoverage()">Load Coverage</button>
+      </div>
+    </div>
+    <div id="coverage-results"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
