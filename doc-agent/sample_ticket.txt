@@ -1,0 +1,41 @@
+Ticket #: 1234567
+Subject: APM traces not appearing in Datadog UI - Java Spring Boot app
+Priority: P2
+Customer: Acme Corp
+
+--- Customer Description ---
+
+We upgraded our Datadog Java agent from 1.12.0 to 1.32.0 last week and since then our APM traces have stopped appearing in the Datadog UI. Our services show up in the Service Catalog but trace data is missing entirely.
+
+We are running:
+- Java 17
+- Spring Boot 3.1.4
+- Datadog Java agent 1.32.0
+- Agent 7.48.0 on the host
+- AWS ECS Fargate
+
+Logs are still flowing fine. Metrics look normal. Just traces are missing.
+
+We've checked that DD_APM_ENABLED=true is set. We set DD_TRACE_ENABLED=true as well. The app starts without errors.
+
+--- Error logs ---
+
+2024-01-15 10:23:41 [dd.trace] ERROR com.datadog.trace.agent.tooling.AgentInstaller - Failed to instrument class: org.springframework.web.servlet.DispatcherServlet
+java.lang.UnsupportedOperationException: class redefinition failed: attempted to change the schema (add/remove fields)
+    at sun.instrument.InstrumentationImpl.redefineClasses0(Native Method)
+    at sun.instrument.InstrumentationImpl.redefineClasses(InstrumentationImpl.java:170)
+
+2024-01-15 10:23:42 [dd.trace] WARN  io.opentelemetry.javaagent.tooling.AgentInstaller - Instrumentation of org.springframework.web.servlet.DispatcherServlet failed, skipping.
+
+--- What we tried ---
+1. Restarted the application
+2. Set DD_TRACE_DEBUG=true - lots of output but no clear error
+3. Tried rolling back to 1.28.0 - traces came back
+4. Confirmed DD_AGENT_HOST is pointing to the correct Datadog Agent endpoint
+
+--- TSE Notes ---
+Customer confirmed traces resumed on 1.28.0. Issue is clearly regression between 1.28.0 and 1.32.0.
+The class redefinition error points to a conflict with Spring Boot 3.x's updated DispatcherServlet.
+Checked known issues - there's an internal bug report (DD-98765) for this exact class redefinition failure with Spring Boot 3.1+ and agent versions 1.29-1.32.
+Workaround: use 1.28.0 or set DD_TRACE_CLASSES_EXCLUDE=org.springframework.web.servlet.DispatcherServlet (loses some HTTP route tagging but keeps traces flowing).
+Fix is in 1.33.0 per engineering.

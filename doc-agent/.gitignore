@@ -1,0 +1,16 @@
+.env
+*.db
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.log
+.DS_Store
+code-index.json
+*.db-shm
+*.db-wal
+.playwright-mcp/
+.pytest_cache/
